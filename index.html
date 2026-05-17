@@ -192,7 +192,7 @@
 <body>
     <div class="container">
         <h1>💰 YNAB Financial Dashboard</h1>
-        <p class="subtitle">Interactive analysis of your household budget (March 2022 - May 2026)</p>
+        <p class="subtitle">Interactive analysis of your household budget (March 2022 - May 2026) • 49 months of data</p>
 
         <div class="tab-buttons">
             <button class="tab-button active" onclick="showTab('overview')">📊 Overview</button>
@@ -335,50 +335,73 @@
 
         async function loadData() {
             try {
-                // Load the income/expense data
-                const response = await fetch('ynab-reflect-income-expense-2025-11-18.csv');
-                const csvText = await response.text();
+                // Load both CSV files (2025 and 2026 data)
+                const response2025 = await fetch('ynab-reflect-income-expense-2025-11-18.csv');
+                const csvText2025 = await response2025.text();
 
-                const parsed = Papa.parse(csvText, {
+                const response2026 = await fetch('ynab-reflect-income-expense-2026-05-17.csv');
+                const csvText2026 = await response2026.text();
+
+                const parsed2025 = Papa.parse(csvText2025, {
                     header: true,
                     dynamicTyping: true
                 });
 
-                // Parse the data
-                const data = parsed.data;
-
-                // Find Total Income and Total Expenses rows
-                const incomeRow = data.find(row => row.Category === 'Total Income');
-                const expenseCategories = data.filter(row =>
-                    row.Category &&
-                    !row.Category.includes('Income') &&
-                    !row.Category.includes('Total') &&
-                    row.Category !== ''
-                );
-
-                // Get month columns (exclude Category, Average, Total)
-                const monthColumns = Object.keys(incomeRow).filter(key =>
-                    key !== 'Category' && key !== 'Average' && key !== 'Total'
-                );
-
-                // Extract data for each month
-                monthColumns.forEach(month => {
-                    const income = parseFloat(incomeRow[month]) || 0;
-
-                    // Sum expenses for this month
-                    let expenses = 0;
-                    expenseCategories.forEach(cat => {
-                        const val = parseFloat(cat[month]) || 0;
-                        expenses += Math.abs(val);
-                    });
-
-                    if (income > 0 || expenses > 0) {
-                        allData.months.push(month);
-                        allData.income.push(income);
-                        allData.expenses.push(expenses);
-                        allData.cashFlow.push(income - expenses);
-                    }
+                const parsed2026 = Papa.parse(csvText2026, {
+                    header: true,
+                    dynamicTyping: true
                 });
+
+                // Merge the data from both files
+                const data = [...parsed2025.data, ...parsed2026.data];
+
+                // Process data from both sources
+                const processData = (dataRows) => {
+                    const incomeRow = dataRows.find(row => row.Category === 'Total Income');
+                    const expenseRow = dataRows.find(row => row.Category === 'Total Expenses');
+
+                    if (!incomeRow) return;
+
+                    const monthColumns = Object.keys(incomeRow).filter(key =>
+                        key !== 'Category' && key !== 'Average' && key !== 'Total' && key !== ''
+                    );
+
+                    monthColumns.forEach(month => {
+                        // Skip if we already have this month
+                        if (allData.months.includes(month)) return;
+
+                        const income = parseFloat(incomeRow[month]) || 0;
+                        let expenses = 0;
+
+                        if (expenseRow) {
+                            // 2026 data has Total Expenses row
+                            expenses = Math.abs(parseFloat(expenseRow[month]) || 0);
+                        } else {
+                            // 2025 data needs to sum expense categories
+                            const expenseCategories = dataRows.filter(row =>
+                                row.Category &&
+                                !row.Category.includes('Income') &&
+                                !row.Category.includes('Total') &&
+                                row.Category !== ''
+                            );
+                            expenseCategories.forEach(cat => {
+                                const val = parseFloat(cat[month]) || 0;
+                                expenses += Math.abs(val);
+                            });
+                        }
+
+                        if (income > 0 || expenses > 0) {
+                            allData.months.push(month);
+                            allData.income.push(income);
+                            allData.expenses.push(expenses);
+                            allData.cashFlow.push(income - expenses);
+                        }
+                    });
+                };
+
+                // Process both datasets
+                processData(parsed2025.data);
+                processData(parsed2026.data);
 
                 // Calculate and display statistics
                 updateStatistics();
